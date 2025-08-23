@@ -229,6 +229,15 @@ SELECT SNOWFLAKE.CORTEX.SEARCH(
 - Native integration with Cortex AI
 - No external dependencies or configuration needed
 
+#### Streamlit in Snowflake: required Packages
+When deploying the Streamlit app inside Snowflake, add these packages in the app editor:
+
+1. Open the Streamlit app in Snowflake and click the Packages dropdown in the editor.
+2. Add the following packages:
+   - snowflake.core
+   - plotly
+3. Save, then run/redeploy the app.
+
 ### Production Deployment
 - Container deployment options available
 - Environment variable configuration

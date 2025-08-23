@@ -1,0 +1,63 @@
+# Healthcare AI Demo Requirements
+# ===============================
+# 
+# Complete dependency list for the Healthcare AI Demo application
+# These packages are available in the Snowflake Anaconda channel
+# https://repo.anaconda.com/pkgs/snowflake/
+#
+# DEPLOYMENT REQUIREMENTS:
+# - Python 3.11+ (required for Snowflake stored procedures) 
+# - Snowflake account with Cortex AI features enabled
+# - ACCOUNTADMIN or database creation privileges
+
+# Core Snowflake integration
+snowflake-connector-python>=3.0.0
+snowflake-snowpark-python>=1.0.0
+
+# Streamlit application framework
+streamlit>=1.28.0
+
+# Data processing and analysis
+pandas>=1.5.0
+numpy>=1.24.0
+
+# Visualization libraries
+altair>=5.0.0
+plotly>=5.14.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Configuration and utility
+tomli>=2.0.0                # TOML configuration file parsing
+python-dateutil>=2.8.0      # Date/time utilities
+pytz>=2023.3               # Timezone handling
+
+# Built-in Python modules used (no installation required):
+# - math (for network visualization calculations)
+# - json (for AI response parsing and data serialization)
+# - time, datetime (for performance tracking and timestamps)
+# - sys, os, pathlib (for path management and system interaction)
+# - concurrent.futures (for parallel AI processing)
+# - typing (for type hints and code documentation)
+# - traceback (for error handling and debugging)
+# - argparse (for command-line argument parsing)
+# - uuid (for unique identifier generation)
+
+# IMPORTANT NOTES FOR SNOWFLAKE DEPLOYMENT:
+# - Use Python 3.11 runtime in stored procedures (3.8 is deprecated)
+# - Only list external packages in PACKAGES clause of procedures
+# - Built-in Python modules don't need to be specified in PACKAGES
+# - All packages listed here are available in Snowflake's Anaconda channel
+
+# OPTIONAL DEVELOPMENT DEPENDENCIES (not required for deployment):
+# watchdog>=3.0.0            # File watching for development
+# jupyter>=1.0.0             # Notebook development environment
+# pytest>=7.0.0              # Testing framework
+
+# EXCLUDED DEPENDENCIES (replaced with Snowflake-compatible alternatives):
+# - networkx (replaced with pure Plotly network visualization)
+# - scikit-learn (replaced with Snowflake ML functions)  
+# - tensorflow/pytorch (replaced with Snowflake Cortex AI)
+
+# DEPLOYMENT VERIFICATION:
+# After installation, verify with: python scripts/validate_deployment.py

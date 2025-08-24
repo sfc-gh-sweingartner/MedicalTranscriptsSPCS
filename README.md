@@ -236,6 +236,7 @@ When deploying the Streamlit app inside Snowflake, add these packages in the app
 2. Add the following packages:
    - snowflake.core
    - plotly
+   - pandas
 3. Save, then run/redeploy the app.
 
 ### Production Deployment

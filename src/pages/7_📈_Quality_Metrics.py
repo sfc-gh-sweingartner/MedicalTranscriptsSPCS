@@ -444,7 +444,8 @@ def main():
                     'HIGH_COST_PATIENTS': 'High-Cost Patients'
                 },
                 hover_data=['GUIDELINE'],
-                color_continuous_scale='Reds'
+                color_continuous_scale='Reds',
+                render_mode='svg'
             )
             fig_guidelines.add_vline(x=70, line_dash="dash", line_color="gray")
             fig_guidelines.add_hline(y=2, line_dash="dash", line_color="gray")

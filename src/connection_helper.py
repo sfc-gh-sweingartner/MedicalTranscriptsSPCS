@@ -722,14 +722,28 @@ def parse_comprehensive_response(response: str) -> dict:
     """Parse the comprehensive AI response into structured data (from stored procedure)"""
     try:
         import re
-        # Extract JSON from response
-        json_match = re.search(r'\{.*\}', response, re.DOTALL)
-        if not json_match:
-            return {}
-        
-        json_str = json_match.group()
-        parsed = json.loads(json_str)
-        return parsed
+        # Try to extract fenced JSON first
+        fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", response, re.IGNORECASE)
+        if fence_match:
+            fenced = fence_match.group(1).strip()
+            try:
+                return json.loads(fenced)
+            except Exception:
+                pass
+
+        # Extract the largest JSON object in the response
+        json_match = re.search(r'\{[\s\S]*\}', response, re.DOTALL)
+        if json_match:
+            json_str = json_match.group()
+            try:
+                return json.loads(json_str)
+            except Exception:
+                # Safer fallback to tolerate minor formatting issues
+                from connection_helper import parse_json_safely as _safe
+                parsed = _safe(json_str, {})
+                if isinstance(parsed, dict) and parsed:
+                    return parsed
+        return {}
     except Exception as e:
         print(f"Error parsing AI response: {e}")
         return {}
@@ -758,11 +772,28 @@ def process_single_patient_comprehensive(patient_notes: str, model: str = "claud
         # Execute AI analysis
         raw_response = execute_cortex_complete(formatted_prompt, model, conn)
         
-        if not raw_response:
-            return {}
-        
         # Parse consolidated response
-        consolidated_results = parse_comprehensive_response(raw_response)
+        consolidated_results = parse_comprehensive_response(raw_response or "")
+        alt_response = ""
+        
+        # Fallback: try an alternate model once if parsing failed or empty
+        if not consolidated_results:
+            try:
+                alt_model = "mistral-large" if model != "mistral-large" else "llama3.1-8b"
+                alt_response = execute_cortex_complete(formatted_prompt, alt_model, conn)
+                consolidated_results = parse_comprehensive_response(alt_response or "")
+            except Exception:
+                pass
+        
+        # Final safety: if still empty but we have raw text from either attempt, surface minimal structure
+        if not consolidated_results:
+            fallback_text = (raw_response or alt_response or "").strip()
+            if fallback_text:
+                consolidated_results = {
+                    "clinical_summary": {
+                        "clinical_summary": fallback_text[:1500]
+                    }
+                }
         
         return consolidated_results
         

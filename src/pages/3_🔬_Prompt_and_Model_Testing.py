@@ -167,10 +167,24 @@ def get_patient_details(patient_id, _conn):
 def parse_consolidated_response(response: str) -> dict:
     try:
         import re as _re
-        json_match = _re.search(r'\{.*\}', response, _re.DOTALL)
+        # Prefer fenced JSON if present
+        fence = _re.search(r"```(?:json)?\s*([\s\S]*?)```", response, _re.IGNORECASE)
+        if fence:
+            try:
+                return json.loads(fence.group(1))
+            except Exception:
+                pass
+        # General JSON object fallback
+        json_match = _re.search(r'\{[\s\S]*\}', response, _re.DOTALL)
         if json_match:
-            full_result = json.loads(json_match.group())
-            return full_result if isinstance(full_result, dict) else {"result": full_result}
+            try:
+                full_result = json.loads(json_match.group())
+                return full_result if isinstance(full_result, dict) else {"result": full_result}
+            except Exception:
+                from connection_helper import parse_json_safely as _safe
+                parsed = _safe(json_match.group(), {})
+                if isinstance(parsed, dict) and parsed:
+                    return parsed
     except Exception:
         pass
     return {}
@@ -469,7 +483,7 @@ def main():
         with c1:
             search_term = st.text_input(
                 "🤖 AI-Powered Patient Search",
-                placeholder="e.g., cardiac issues, seizure disorders, rare tumors, hypertension",
+                placeholder="e.g., 9283, tumors, female with cardiac issues and diabetes",
                 key="patient_search_live",
                 help="Uses Snowflake Cortex AI for semantic search.",
             )
@@ -490,7 +504,34 @@ def main():
         st.session_state.last_search_term_live = ""
     if do_search and search_term:
         with st.spinner("🔍 Searching patients..."):
-            st.session_state.search_results_live = search_patients_cortex(search_term, conn)
+            # If the user entered a numeric patient_id, query directly instead of Cortex
+            if search_term.strip().isdigit():
+                pid = int(search_term.strip())
+                direct_query = f"""
+                WITH parsed_pmc AS (
+                    SELECT 
+                        PATIENT_ID,
+                        PATIENT_UID,
+                        PATIENT_TITLE,
+                        GENDER,
+                        PATIENT_NOTES,
+                        TRY_TO_NUMBER(TO_VARCHAR(TRY_PARSE_JSON(AGE)[0][0])) AS AGE_YEARS
+                    FROM PMC_PATIENTS.PMC_PATIENTS.PMC_PATIENTS
+                )
+                SELECT DISTINCT
+                    p.PATIENT_ID,
+                    p.PATIENT_UID,
+                    p.PATIENT_TITLE,
+                    p.AGE_YEARS AS AGE,
+                    p.GENDER,
+                    SUBSTR(p.PATIENT_NOTES, 1, 200) || '...' AS NOTES_PREVIEW
+                FROM parsed_pmc p
+                WHERE p.PATIENT_ID = {pid}
+                LIMIT 20
+                """
+                st.session_state.search_results_live = execute_query(direct_query, conn)
+            else:
+                st.session_state.search_results_live = search_patients_cortex(search_term, conn)
             st.session_state.last_search_term_live = search_term
     if not st.session_state.search_results_live.empty and st.session_state.last_search_term_live:
         st.markdown(
@@ -613,6 +654,18 @@ def main():
                     try:
                         raw_response = execute_cortex_complete(filled_prompt, selected_model, conn)
                         parsed = parse_consolidated_response(raw_response or "")
+                        # Fallback to alternate model if parsed is empty
+                        if not parsed:
+                            try:
+                                alt_model = "mistral-large" if selected_model != "mistral-large" else "llama3.1-8b"
+                                raw_alt = execute_cortex_complete(filled_prompt, alt_model, conn)
+                                parsed = parse_consolidated_response(raw_alt or "")
+                                if not parsed and (raw_alt or raw_response):
+                                    minimal = (raw_alt or raw_response or "").strip()
+                                    if minimal:
+                                        parsed = {"clinical_summary": {"clinical_summary": minimal[:1500]}}
+                            except Exception:
+                                pass
                         st.session_state.processing_results = parsed
                         st.session_state.raw_model_response = raw_response
                         try:

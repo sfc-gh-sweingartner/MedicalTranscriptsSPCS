@@ -1209,7 +1209,7 @@ def main():
         with col1:
             search_term = st.text_input(
                 "Patient Search",
-                placeholder="e.g., cardiac issues, seizure disorders, rare tumors, hypertension, brest cancer",
+                placeholder="e.g., 9283, tumors, female with cardiac issues and diabetes",
                 key="patient_search",
                 help="Searches patient notes using Cortex Search"
             )
@@ -1237,11 +1237,29 @@ def main():
     # Perform search when form is submitted (button clicked or Enter pressed)
     if search_term and search_button:
         with st.spinner("🔍 Searching patients..."):
-            st.session_state.search_results = search_patients_cortex(
-                search_term,
-                conn,
-                processed_only=(filter_choice == "Processed")
-            )
+            # If the search term is numeric, perform a direct SQL lookup on PATIENT_ID
+            if search_term.strip().isdigit():
+                pid = int(search_term.strip())
+                direct_query = f"""
+                SELECT DISTINCT
+                    p.PATIENT_ID,
+                    p.PATIENT_UID,
+                    p.PATIENT_TITLE,
+                    TRY_TO_NUMBER(TO_VARCHAR(TRY_PARSE_JSON(p.AGE)[0][0])) AS AGE,
+                    p.GENDER,
+                    SUBSTR(p.PATIENT_NOTES, 1, 200) || '...' as NOTES_PREVIEW
+                FROM PMC_PATIENTS.PMC_PATIENTS.PMC_PATIENTS p
+                WHERE p.PATIENT_ID = {pid}
+                {"AND EXISTS (SELECT 1 FROM HEALTHCARE_DEMO.MEDICAL_NOTES.PATIENT_ANALYSIS pa WHERE pa.PATIENT_ID = p.PATIENT_ID)" if filter_choice == "Processed" else ''}
+                LIMIT 20
+                """
+                st.session_state.search_results = execute_query(direct_query, conn)
+            else:
+                st.session_state.search_results = search_patients_cortex(
+                    search_term,
+                    conn,
+                    processed_only=(filter_choice == "Processed")
+                )
             st.session_state.last_search_term = search_term
     
     # Display search results if available
@@ -1324,13 +1342,24 @@ def main():
 
             # Get pre-computed analysis
             analysis_data = get_patient_analysis(patient_id, conn)
-            has_precomputed = not analysis_data.empty and (
-                analysis_data.iloc[0].get('SBAR_SUMMARY')
-                or analysis_data.iloc[0].get('DIFFERENTIAL_DIAGNOSES')
-                or analysis_data.iloc[0].get('TREATMENTS_ADMINISTERED')
-                or analysis_data.iloc[0].get('EVIDENCE_BASED_RECOMMENDATIONS')
-                or analysis_data.iloc[0].get('TREATMENT_EFFECTIVENESS')
-            )
+            # Safely detect presence of any precomputed content (avoid NaN truthiness)
+            row0 = analysis_data.iloc[0] if not analysis_data.empty else {}
+            def _has_value(val):
+                try:
+                    import pandas as _pd
+                    return (val is not None) and (not (_pd.isna(val) if hasattr(_pd, 'isna') else False)) and str(val).strip() != ''
+                except Exception:
+                    return bool(val)
+            has_precomputed = False
+            if not analysis_data.empty:
+                has_precomputed = (
+                    _has_value(row0.get('AI_ANALYSIS_JSON'))
+                    or _has_value(row0.get('SBAR_SUMMARY'))
+                    or _has_value(row0.get('DIFFERENTIAL_DIAGNOSES'))
+                    or _has_value(row0.get('TREATMENTS_ADMINISTERED'))
+                    or _has_value(row0.get('EVIDENCE_BASED_RECOMMENDATIONS'))
+                    or _has_value(row0.get('TREATMENT_EFFECTIVENESS'))
+                )
 
             if has_precomputed:
                 analysis_results = build_consolidated_analysis_results(patient_id, analysis_data, patient, conn)
@@ -1355,12 +1384,12 @@ def main():
             # Dynamic display at the very bottom (identical to AI Processing page)
             st.markdown("---")
             st.markdown("## 📊 Preview Output")
-            display_consolidated_results(analysis_results)
+            display_consolidated_results(analysis_results if isinstance(analysis_results, dict) else {})
         else:
             st.error(f"Patient {patient_id} not found in database.")
     else:
         # No patient selected
-        st.info("Enter a search term to find patients.")
+        pass
 
 if __name__ == "__main__":
     main()

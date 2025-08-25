@@ -37,9 +37,9 @@ def load_population_overview(_conn):
         COUNT(DISTINCT pa.PATIENT_ID) as total_patients,
         AVG(p.AGE_YEARS) as avg_age,
         STDDEV(p.AGE_YEARS) as age_stddev,
-        COUNT(DISTINCT CASE WHEN pa.PRESENTATION_TYPE = 'rare' THEN pa.PATIENT_ID END) as rare_presentations,
-        COUNT(DISTINCT CASE WHEN pa.ESTIMATED_COST_CATEGORY IN ('high', 'very_high') THEN pa.PATIENT_ID END) as high_cost_patients,
-        AVG(pa.ANOMALY_SCORE) as avg_anomaly_score,
+        COUNT(DISTINCT CASE WHEN pa.AI_ANALYSIS_JSON:pattern_recognition:clinical_patterns:presentation_type::STRING = 'rare' THEN pa.PATIENT_ID END) as rare_presentations,
+        COUNT(DISTINCT CASE WHEN pa.AI_ANALYSIS_JSON:cost_analysis:financial_impact:estimated_cost_category::STRING IN ('high', 'very_high') THEN pa.PATIENT_ID END) as high_cost_patients,
+        AVG(TRY_TO_NUMBER(pa.AI_ANALYSIS_JSON:pattern_recognition:anomaly_detection:anomaly_score::STRING)) as avg_anomaly_score,
         AVG(ARRAY_SIZE(ma.EXTRACTED_MEDICATIONS)) as avg_medications,
         COUNT(DISTINCT CASE WHEN ma.POLYPHARMACY_RISK_SCORE > 5 THEN pa.PATIENT_ID END) as polypharmacy_patients
     FROM parsed_pmc p
@@ -97,8 +97,8 @@ def load_diagnosis_patterns(_conn):
             p.GENDER
         FROM parsed_pmc p
         INNER JOIN PATIENT_ANALYSIS pa ON p.PATIENT_ID = pa.PATIENT_ID,
-        LATERAL FLATTEN(input => pa.DIFFERENTIAL_DIAGNOSES) dx
-        WHERE pa.DIFFERENTIAL_DIAGNOSES IS NOT NULL
+        LATERAL FLATTEN(input => pa.AI_ANALYSIS_JSON:differential_diagnosis:diagnostic_assessment:differential_diagnoses) dx
+        WHERE pa.AI_ANALYSIS_JSON:differential_diagnosis:diagnostic_assessment:differential_diagnoses IS NOT NULL
     )
     SELECT 
         diagnosis,
@@ -199,8 +199,8 @@ def load_quality_metrics_summary(_conn):
             p.AGE_YEARS
         FROM parsed_pmc p
         INNER JOIN PATIENT_ANALYSIS pa ON p.PATIENT_ID = pa.PATIENT_ID,
-        LATERAL FLATTEN(input => pa.CARE_QUALITY_INDICATORS) qi
-        WHERE pa.CARE_QUALITY_INDICATORS IS NOT NULL
+        LATERAL FLATTEN(input => pa.AI_ANALYSIS_JSON:quality_metrics:care_quality:quality_indicators) qi
+        WHERE pa.AI_ANALYSIS_JSON:quality_metrics:care_quality:quality_indicators IS NOT NULL
         AND qi.value:met::STRING IS NOT NULL 
         AND UPPER(qi.value:met::STRING) NOT IN ('NOT SPECIFIED', 'UNKNOWN', 'N/A', '')
     )
@@ -227,15 +227,15 @@ def load_anomaly_distribution(_conn):
         FROM PMC_PATIENTS.PMC_PATIENTS.PMC_PATIENTS
     )
     SELECT 
-        ROUND(pa.ANOMALY_SCORE, 1) as anomaly_bucket,
+        ROUND(TRY_TO_NUMBER(pa.AI_ANALYSIS_JSON:pattern_recognition:anomaly_detection:anomaly_score::STRING), 1) as anomaly_bucket,
         COUNT(*) as patient_count,
-        pa.PRESENTATION_TYPE,
+        pa.AI_ANALYSIS_JSON:pattern_recognition:clinical_patterns:presentation_type::STRING as PRESENTATION_TYPE,
         AVG(ca.ESTIMATED_ENCOUNTER_COST) as avg_cost
     FROM parsed_pmc p
     INNER JOIN PATIENT_ANALYSIS pa ON p.PATIENT_ID = pa.PATIENT_ID
     LEFT JOIN COST_ANALYSIS ca ON p.PATIENT_ID = ca.PATIENT_ID
-    WHERE pa.ANOMALY_SCORE IS NOT NULL
-    GROUP BY anomaly_bucket, pa.PRESENTATION_TYPE
+    WHERE pa.AI_ANALYSIS_JSON:pattern_recognition:anomaly_detection:anomaly_score IS NOT NULL
+    GROUP BY anomaly_bucket, pa.AI_ANALYSIS_JSON:pattern_recognition:clinical_patterns:presentation_type::STRING
     ORDER BY anomaly_bucket
     """
     return execute_query(query, _conn)

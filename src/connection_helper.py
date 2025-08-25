@@ -748,13 +748,13 @@ def parse_comprehensive_response(response: str) -> dict:
         print(f"Error parsing AI response: {e}")
         return {}
 
-def process_single_patient_comprehensive(patient_notes: str, model: str = "claude-4-sonnet", conn=None) -> dict:
+def process_single_patient_comprehensive(patient_notes: str, model: str = "openai-gpt-5", conn=None) -> dict:
     """
     Process a single patient using the comprehensive prompt from the stored procedure
     
     Args:
         patient_notes: The patient notes to analyze
-        model: The AI model to use (default: claude-4-sonnet)
+        model: The AI model to use (default: gpt-4o)
         conn: Optional connection object
     
     Returns:
@@ -779,7 +779,7 @@ def process_single_patient_comprehensive(patient_notes: str, model: str = "claud
         # Fallback: try an alternate model once if parsing failed or empty
         if not consolidated_results:
             try:
-                alt_model = "mistral-large" if model != "mistral-large" else "llama3.1-8b"
+                alt_model = "openai-gpt-5" if model != "openai-gpt-5" else "claude-4-sonnet"
                 alt_response = execute_cortex_complete(formatted_prompt, alt_model, conn)
                 consolidated_results = parse_comprehensive_response(alt_response or "")
             except Exception:

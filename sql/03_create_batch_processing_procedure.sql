@@ -9,7 +9,9 @@ USE SCHEMA MEDICAL_NOTES;
 -- Create the batch processing stored procedure
 CREATE OR REPLACE PROCEDURE BATCH_PROCESS_PATIENTS(
     BATCH_SIZE NUMBER DEFAULT 10,
-    MAX_PATIENTS NUMBER DEFAULT NULL
+    MAX_PATIENTS NUMBER DEFAULT NULL,
+    AI_MODEL VARCHAR DEFAULT 'openai-gpt-5',
+    TARGET_PATIENT_ID NUMBER DEFAULT NULL
 )
 RETURNS STRING
 LANGUAGE PYTHON
@@ -202,24 +204,82 @@ Return ONLY the JSON response. Ensure all fields are populated with clinically r
 """
 
 def parse_consolidated_response(response: str) -> dict:
-    """Parse the consolidated AI response into structured data"""
+    """Robustly parse the consolidated AI response into structured data"""
     try:
         import re
-        # Extract JSON from response
-        json_match = re.search(r'\{.*\}', response, re.DOTALL)
-        if not json_match:
-            return {}
         
-        json_str = json_match.group()
-        parsed = json.loads(json_str)
-        return parsed
+        if not response:
+            print("Empty response received")
+            return {}
+            
+        # 1) Try direct JSON parsing first
+        try:
+            parsed = json.loads(response.strip())
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception as e:
+            print(f"Direct JSON parse failed: {e}")
+            pass
+            
+        # 2) Try fenced code block
+        fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", response, re.IGNORECASE)
+        if fence_match:
+            fenced = fence_match.group(1).strip()
+            try:
+                parsed = json.loads(fenced)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception as e:
+                print(f"Fenced JSON parse failed: {e}")
+                pass
+
+        # 3) Extract the largest JSON object in the response
+        # Find all potential JSON objects
+        json_objects = []
+        brace_count = 0
+        start_pos = -1
+        
+        for i, char in enumerate(response):
+            if char == '{':
+                if brace_count == 0:
+                    start_pos = i
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0 and start_pos >= 0:
+                    json_str = response[start_pos:i+1]
+                    try:
+                        parsed = json.loads(json_str)
+                        if isinstance(parsed, dict) and len(parsed) > 0:
+                            json_objects.append(parsed)
+                    except Exception:
+                        pass
+                    start_pos = -1
+        
+        # Return the largest valid JSON object
+        if json_objects:
+            # Sort by number of keys (prefer more complete objects)
+            json_objects.sort(key=lambda x: len(str(x)), reverse=True)
+            return json_objects[0]
+
+        # 4) Final fallback
+        print(f"No valid JSON found in response. First 200 chars: {response[:200]}")
+        return {}
+        
     except Exception as e:
         print(f"Error parsing AI response: {e}")
         return {}
 
-def save_patient_results(session, patient_id: int, consolidated_results: dict):
+def save_patient_results(session, patient_id: int, consolidated_results: dict, ai_model: str = 'openai-gpt-5'):
     """Save consolidated results to all relevant tables"""
     try:
+        # Validate input type
+        if not isinstance(consolidated_results, dict):
+            raise Exception(f"consolidated_results must be a dict, got {type(consolidated_results)}")
+        
+        if not consolidated_results:
+            raise Exception("consolidated_results is empty")
+        
         # Extract sections from consolidated results
         clinical_summary = consolidated_results.get('clinical_summary', {})
         differential_dx = consolidated_results.get('differential_diagnosis', {})
@@ -230,42 +290,18 @@ def save_patient_results(session, patient_id: int, consolidated_results: dict):
         cost_analysis = consolidated_results.get('cost_analysis', {})
         educational_value = consolidated_results.get('educational_value', {})
         
-        # 1. Save to PATIENT_ANALYSIS table
+        # 1. Save to PATIENT_ANALYSIS table (new simplified structure)
         patient_analysis_query = """
         INSERT INTO PATIENT_ANALYSIS (
-            PATIENT_ID, CHIEF_COMPLAINT, CLINICAL_SUMMARY, SBAR_SUMMARY,
-            KEY_FINDINGS, DIFFERENTIAL_DIAGNOSES, DIAGNOSTIC_REASONING,
-            TREATMENTS_ADMINISTERED, TREATMENT_EFFECTIVENESS, EVIDENCE_BASED_RECOMMENDATIONS,
-            PRESENTATION_TYPE, RARE_DISEASE_INDICATORS, ANOMALY_SCORE,
-            HIGH_COST_INDICATORS, ESTIMATED_COST_CATEGORY, RESOURCE_UTILIZATION,
-            CARE_QUALITY_INDICATORS, GUIDELINE_ADHERENCE_FLAGS,
-            TEACHING_POINTS, CLINICAL_PEARLS, QUIZ_QUESTIONS
+            PATIENT_ID, AI_ANALYSIS_JSON, AI_MODEL_USED
         ) 
-        SELECT ?, ?, ?, PARSE_JSON(?), PARSE_JSON(?), PARSE_JSON(?), ?, PARSE_JSON(?), ?, PARSE_JSON(?), ?, PARSE_JSON(?), ?, PARSE_JSON(?), ?, PARSE_JSON(?), PARSE_JSON(?), PARSE_JSON(?), PARSE_JSON(?), ?, PARSE_JSON(?)
+        SELECT ?, PARSE_JSON(?), ?
         """
         
         session.sql(patient_analysis_query, params=[
-            patient_id,
-            clinical_summary.get('chief_complaint', ''),
-            clinical_summary.get('clinical_summary', ''),
-            json.dumps(clinical_summary),  # SBAR_SUMMARY - JSON string for PARSE_JSON()
-            json.dumps(differential_dx.get('clinical_findings', {}).get('key_findings', [])),  # KEY_FINDINGS - JSON string
-            json.dumps(differential_dx.get('diagnostic_assessment', {}).get('differential_diagnoses', [])),  # DIFFERENTIAL_DIAGNOSES - JSON string
-            differential_dx.get('diagnostic_reasoning', ''),
-            json.dumps(treatment_analysis.get('active_treatments', {}).get('current_treatments', [])),  # TREATMENTS_ADMINISTERED - JSON string
-            treatment_analysis.get('active_treatments', {}).get('treatment_effectiveness', ''),
-            json.dumps(treatment_analysis.get('clinical_recommendations', {}).get('evidence_based_recommendations', [])),  # EVIDENCE_BASED_RECOMMENDATIONS - JSON string
-            pattern_recognition.get('clinical_patterns', {}).get('presentation_type', ''),
-            json.dumps(pattern_recognition.get('clinical_patterns', {}).get('rare_disease_indicators', [])),  # RARE_DISEASE_INDICATORS - JSON string
-            pattern_recognition.get('anomaly_detection', {}).get('anomaly_score', 0.0),
-            json.dumps(cost_analysis.get('cost_drivers', {}).get('high_cost_indicators', [])),  # HIGH_COST_INDICATORS - JSON string
-            cost_analysis.get('financial_impact', {}).get('estimated_cost_category', ''),
-            json.dumps(cost_analysis.get('resource_utilization', {})),  # RESOURCE_UTILIZATION - JSON string
-            json.dumps(quality_metrics.get('care_quality', {}).get('quality_indicators', [])),  # CARE_QUALITY_INDICATORS - JSON string
-            json.dumps(quality_metrics.get('care_quality', {}).get('guideline_adherence', [])),  # GUIDELINE_ADHERENCE_FLAGS - JSON string
-            json.dumps(educational_value.get('teaching_content', {}).get('teaching_points', [])),  # TEACHING_POINTS - JSON string
-            educational_value.get('teaching_content', {}).get('clinical_pearls', ''),
-            json.dumps(educational_value.get('assessment_tools', {}).get('quiz_questions', []))  # QUIZ_QUESTIONS - JSON string
+            int(patient_id),  # PATIENT_ID
+            json.dumps(consolidated_results),  # AI_ANALYSIS_JSON - store full results
+            ai_model  # AI_MODEL_USED
         ]).collect()
         
         # 2. Save to MEDICATION_ANALYSIS table
@@ -316,25 +352,36 @@ def save_patient_results(session, patient_id: int, consolidated_results: dict):
     except Exception as e:
         raise Exception(f"Error saving results for patient {patient_id}: {e}")
 
-def batch_process_main(session, batch_size: int, max_patients: int = None):
+def batch_process_main(session, batch_size: int, max_patients: int = None, ai_model: str = 'openai-gpt-5', target_patient_id: int = None):
     """Main batch processing function for Snowpark procedure"""
     
     start_time = time.time()
     
     try:
-        # Get unprocessed patients
-        patients_query = """
-            SELECT p.PATIENT_ID, p.PATIENT_NOTES
-            FROM PMC_PATIENTS.PMC_PATIENTS.PMC_PATIENTS p
-            LEFT JOIN HEALTHCARE_DEMO.MEDICAL_NOTES.PATIENT_ANALYSIS pa ON p.PATIENT_ID = pa.PATIENT_ID
-            WHERE pa.PATIENT_ID IS NULL
-              AND p.PATIENT_NOTES IS NOT NULL
-              AND LENGTH(p.PATIENT_NOTES) > 100
-            ORDER BY p.PATIENT_ID
-        """
-        
-        if max_patients:
-            patients_query += f" LIMIT {max_patients}"
+        # Get patients to process
+        if target_patient_id:
+            # Process specific patient
+            patients_query = f"""
+                SELECT p.PATIENT_ID, p.PATIENT_NOTES
+                FROM PMC_PATIENTS.PMC_PATIENTS.PMC_PATIENTS p
+                WHERE p.PATIENT_ID = {target_patient_id}
+                  AND p.PATIENT_NOTES IS NOT NULL
+                  AND LENGTH(p.PATIENT_NOTES) > 100
+            """
+        else:
+            # Get unprocessed patients
+            patients_query = """
+                SELECT p.PATIENT_ID, p.PATIENT_NOTES
+                FROM PMC_PATIENTS.PMC_PATIENTS.PMC_PATIENTS p
+                LEFT JOIN HEALTHCARE_DEMO.MEDICAL_NOTES.PATIENT_ANALYSIS pa ON p.PATIENT_ID = pa.PATIENT_ID
+                WHERE pa.PATIENT_ID IS NULL
+                  AND p.PATIENT_NOTES IS NOT NULL
+                  AND LENGTH(p.PATIENT_NOTES) > 100
+                ORDER BY p.PATIENT_ID
+            """
+            
+            if max_patients:
+                patients_query += f" LIMIT {max_patients}"
             
         patients_df = session.sql(patients_query).to_pandas()
         
@@ -384,9 +431,9 @@ def batch_process_main(session, batch_size: int, max_patients: int = None):
                     )
                     
                     # Execute AI analysis using parameterized query to avoid SQL injection issues
-                    ai_query = """
+                    ai_query = f"""
                     SELECT SNOWFLAKE.CORTEX.COMPLETE(
-                        'claude-4-sonnet',
+                        '{ai_model}',
                         ?
                     ) as response
                     """
@@ -397,14 +444,18 @@ def batch_process_main(session, batch_size: int, max_patients: int = None):
                     
                     ai_response = ai_result[0]['RESPONSE']
                     
+                    # Debug: Print first 500 chars of response
+                    print(f"AI Response preview for patient {patient_id}: {ai_response[:500] if ai_response else 'None'}")
+                    
                     # Parse consolidated response
                     consolidated_results = parse_consolidated_response(ai_response)
                     
-                    if not consolidated_results:
-                        raise Exception("Failed to parse AI response")
+                    # Check if parsing returned a valid result
+                    if not consolidated_results or not isinstance(consolidated_results, dict) or 'clinical_summary' not in consolidated_results:
+                        raise Exception(f"Failed to parse AI response - got type: {type(consolidated_results)}, keys: {consolidated_results.keys() if isinstance(consolidated_results, dict) else 'N/A'}")
                     
                     # Save results to all tables
-                    save_patient_results(session, patient_id, consolidated_results)
+                    save_patient_results(session, patient_id, consolidated_results, ai_model)
                     
                     processed_count += 1
                     

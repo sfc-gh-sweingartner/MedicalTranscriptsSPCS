@@ -418,7 +418,7 @@ def generate_clinical_summary(patient_notes, conn):
     """
     
     try:
-        response = execute_cortex_complete(prompt, "claude-4-sonnet", conn)
+        response = execute_cortex_complete(prompt, "gpt-4o", conn)
         # Parse the response
         if response:
             # Try to extract JSON from the response
@@ -455,7 +455,7 @@ def generate_differential_diagnosis(patient_notes, similar_patients, conn):
     """
     
     try:
-        response = execute_cortex_complete(prompt, "claude-4-sonnet", conn)
+        response = execute_cortex_complete(prompt, "gpt-4o", conn)
         if response:
             # Extract JSON array from response
             import re
@@ -688,7 +688,7 @@ def generate_treatment_analysis(patient_notes: str, conn) -> dict:
     {patient_notes[:2000]}
     """
     try:
-        response = execute_cortex_complete(prompt, "claude-4-sonnet", conn)
+        response = execute_cortex_complete(prompt, "gpt-4o", conn)
         if response:
             import re
             match = re.search(r'\{.*\}', response, re.DOTALL)
@@ -809,12 +809,12 @@ def build_consolidated_analysis_results(patient_id: int, analysis_data, patient,
     if not analysis_data.empty:
         row = analysis_data.iloc[0]
         
-        # FIRST: Try to read from AI_ANALYSIS_JSON column (complete JSON response)
+        # Read from AI_ANALYSIS_JSON column (simplified structure)
         if row.get('AI_ANALYSIS_JSON'):
             try:
                 complete_json = parse_json_safely(row['AI_ANALYSIS_JSON'])
                 if complete_json and isinstance(complete_json, dict):
-                    # Use the complete JSON structure, exactly like AI Processing Live does
+                    # Use the complete JSON structure
                     results.update(complete_json)
                     
                     # Add Evidence & Literature (always available from patient data)
@@ -825,58 +825,10 @@ def build_consolidated_analysis_results(patient_id: int, analysis_data, patient,
                     
                     return results
             except Exception as e:
-                # If parsing fails, fall back to individual columns
-                print(f"Error parsing AI_ANALYSIS_JSON: {e}")
-        
-        # FALLBACK: Read from individual columns (legacy support)
-        # Clinical Summary
-        if row['SBAR_SUMMARY']:
-            sbar_data = parse_json_safely(row['SBAR_SUMMARY'])
-            if sbar_data:
-                results['clinical_summary'] = sbar_data
-        
-        # Differential Diagnosis - handle both old and new structure
-        if row['DIFFERENTIAL_DIAGNOSES']:
-            diagnoses = parse_json_safely(row['DIFFERENTIAL_DIAGNOSES'], [])
-            key_findings = parse_json_safely(row.get('KEY_FINDINGS', '[]'), [])
-            
-            if diagnoses or key_findings:
-                results['differential_diagnosis'] = {
-                    'chief_complaint': row.get('CHIEF_COMPLAINT', ''),
-                    'clinical_findings': {
-                        'key_findings': key_findings
-                    } if key_findings else {},
-                    'diagnostic_assessment': {
-                        'differential_diagnoses': diagnoses
-                    } if diagnoses else {},
-                    'diagnostic_reasoning': row.get('DIAGNOSTIC_REASONING', '')
-                }
-        
-        # Treatment Analysis - handle both old and new structure
-        if row['TREATMENTS_ADMINISTERED'] or row['EVIDENCE_BASED_RECOMMENDATIONS'] or row['TREATMENT_EFFECTIVENESS']:
-            treatments = parse_json_safely(row['TREATMENTS_ADMINISTERED'], [])
-            recs = parse_json_safely(row['EVIDENCE_BASED_RECOMMENDATIONS'], [])
-            effectiveness = row['TREATMENT_EFFECTIVENESS'] or ""
-            
-            results['treatment_analysis'] = {
-                'active_treatments': {
-                    'current_treatments': treatments,
-                    'treatment_effectiveness': effectiveness
-                } if treatments or effectiveness else {},
-                'clinical_recommendations': {
-                    'evidence_based_recommendations': recs
-                } if recs else {}
-            }
-        
-        # Add other sections from database if they exist
-        medication_data = {}
-        if hasattr(row, 'EXTRACTED_MEDICATIONS') and row.get('EXTRACTED_MEDICATIONS'):
-            medications = parse_json_safely(row['EXTRACTED_MEDICATIONS'], [])
-            if medications:
-                medication_data['current_medications'] = {'extracted_medications': medications}
-        
-        if medication_data:
-            results['medication_safety'] = medication_data
+                st.error(f"Error parsing AI_ANALYSIS_JSON: {e}")
+                return results
+        else:
+            st.warning("No AI analysis found for this patient. Please use the 'Process with AI' button below.")
     
     # Evidence & Literature (always available from patient data)
     results['evidence_literature'] = {
@@ -1352,14 +1304,7 @@ def main():
                     return bool(val)
             has_precomputed = False
             if not analysis_data.empty:
-                has_precomputed = (
-                    _has_value(row0.get('AI_ANALYSIS_JSON'))
-                    or _has_value(row0.get('SBAR_SUMMARY'))
-                    or _has_value(row0.get('DIFFERENTIAL_DIAGNOSES'))
-                    or _has_value(row0.get('TREATMENTS_ADMINISTERED'))
-                    or _has_value(row0.get('EVIDENCE_BASED_RECOMMENDATIONS'))
-                    or _has_value(row0.get('TREATMENT_EFFECTIVENESS'))
-                )
+                has_precomputed = _has_value(row0.get('AI_ANALYSIS_JSON'))
 
             if has_precomputed:
                 analysis_results = build_consolidated_analysis_results(patient_id, analysis_data, patient, conn)
@@ -1369,7 +1314,7 @@ def main():
                     with st.spinner("Running comprehensive AI analysis for this patient..."):
                         analysis_results = process_single_patient_comprehensive(
                             patient_notes=str(patient['PATIENT_NOTES']),
-                            model="claude-4-sonnet",
+                            model="openai-gpt-5",
                             conn=conn
                         )
                         # Persist results for future loads (best-effort)

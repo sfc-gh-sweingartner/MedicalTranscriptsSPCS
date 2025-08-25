@@ -220,7 +220,7 @@ def load_high_risk_patients(conn, limit=10):
         ma.POLYPHARMACY_RISK_SCORE,
         ARRAY_SIZE(PARSE_JSON(ma.DRUG_INTERACTIONS)) as interaction_count,
         ARRAY_SIZE(PARSE_JSON(ma.CONTRAINDICATIONS)) as contraindication_count,
-        pa.CHIEF_COMPLAINT
+        pa.AI_ANALYSIS_JSON:clinical_summary:chief_complaint::STRING as CHIEF_COMPLAINT
     FROM HEALTHCARE_DEMO.MEDICAL_NOTES.MEDICATION_ANALYSIS ma
     JOIN parsed_pmc p ON ma.PATIENT_ID = p.PATIENT_ID
     LEFT JOIN HEALTHCARE_DEMO.MEDICAL_NOTES.PATIENT_ANALYSIS pa ON ma.PATIENT_ID = pa.PATIENT_ID

@@ -155,7 +155,7 @@ def load_diagnosis_costs(conn):
             ca.COST_CATEGORY
         FROM PATIENT_ANALYSIS pa
         JOIN COST_ANALYSIS ca ON pa.PATIENT_ID = ca.PATIENT_ID,
-        LATERAL FLATTEN(input => pa.DIFFERENTIAL_DIAGNOSES) dx
+        LATERAL FLATTEN(input => pa.AI_ANALYSIS_JSON:differential_diagnosis:diagnostic_assessment:differential_diagnoses) dx
     )
     SELECT 
         diagnosis,
@@ -190,7 +190,7 @@ def load_high_cost_patients(conn, limit=10):
         p.GENDER,
         ca.ESTIMATED_ENCOUNTER_COST,
         ca.COST_DRIVERS,
-        pa.CHIEF_COMPLAINT,
+        pa.AI_ANALYSIS_JSON:clinical_summary:chief_complaint::STRING as CHIEF_COMPLAINT,
         ARRAY_SIZE(ca.EXTRACTED_PROCEDURES) as procedure_count,
         ARRAY_SIZE(ca.HIGH_COST_INDICATORS) as indicator_count
     FROM COST_ANALYSIS ca

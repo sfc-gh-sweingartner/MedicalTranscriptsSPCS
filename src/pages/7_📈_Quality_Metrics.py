@@ -27,8 +27,8 @@ def load_quality_overview(conn):
     WITH quality_stats AS (
         SELECT 
             pa.PATIENT_ID,
-            ARRAY_SIZE(pa.CARE_QUALITY_INDICATORS) as indicator_count,
-            ARRAY_SIZE(pa.GUIDELINE_ADHERENCE_FLAGS) as guideline_count
+            ARRAY_SIZE(pa.AI_ANALYSIS_JSON:quality_metrics:care_quality:quality_indicators) as indicator_count,
+            ARRAY_SIZE(pa.AI_ANALYSIS_JSON:quality_metrics:care_quality:guideline_adherence) as guideline_count
         FROM PATIENT_ANALYSIS pa
     )
     SELECT 
@@ -64,7 +64,7 @@ def load_quality_indicators(conn):
             p.GENDER
         FROM PATIENT_ANALYSIS pa
         JOIN parsed_pmc p ON pa.PATIENT_ID = p.PATIENT_ID,
-        LATERAL FLATTEN(input => pa.CARE_QUALITY_INDICATORS) qi
+        LATERAL FLATTEN(input => pa.AI_ANALYSIS_JSON:quality_metrics:care_quality:quality_indicators) qi
         WHERE qi.value:met::STRING IS NOT NULL 
         AND UPPER(qi.value:met::STRING) NOT IN ('NOT SPECIFIED', 'UNKNOWN', 'N/A', '')
     )
@@ -96,10 +96,10 @@ def load_guideline_adherence(conn):
             END as adherent,
             ga.value:gaps::ARRAY as gaps,
             ARRAY_SIZE(ga.value:gaps) as gap_count,
-            pa.PRESENTATION_TYPE,
-            pa.ESTIMATED_COST_CATEGORY
+            pa.AI_ANALYSIS_JSON:pattern_recognition:clinical_patterns:presentation_type::STRING as PRESENTATION_TYPE,
+            pa.AI_ANALYSIS_JSON:cost_analysis:financial_impact:estimated_cost_category::STRING as ESTIMATED_COST_CATEGORY
         FROM PATIENT_ANALYSIS pa,
-        LATERAL FLATTEN(input => pa.GUIDELINE_ADHERENCE_FLAGS) ga
+        LATERAL FLATTEN(input => pa.AI_ANALYSIS_JSON:quality_metrics:care_quality:guideline_adherence) ga
         WHERE ga.value:adherent::STRING IS NOT NULL 
         AND UPPER(ga.value:adherent::STRING) NOT IN ('NOT SPECIFIED', 'UNKNOWN', 'N/A', '')
     )
@@ -123,10 +123,10 @@ def load_quality_by_diagnosis(conn):
         SELECT 
             dx.value:diagnosis::STRING as diagnosis,
             pa.PATIENT_ID,
-            ARRAY_SIZE(pa.CARE_QUALITY_INDICATORS) as quality_checks,
-            ARRAY_SIZE(pa.GUIDELINE_ADHERENCE_FLAGS) as guideline_checks
+            ARRAY_SIZE(pa.AI_ANALYSIS_JSON:quality_metrics:care_quality:quality_indicators) as quality_checks,
+            ARRAY_SIZE(pa.AI_ANALYSIS_JSON:quality_metrics:care_quality:guideline_adherence) as guideline_checks
         FROM PATIENT_ANALYSIS pa,
-        LATERAL FLATTEN(input => pa.DIFFERENTIAL_DIAGNOSES) dx
+        LATERAL FLATTEN(input => pa.AI_ANALYSIS_JSON:differential_diagnosis:diagnostic_assessment:differential_diagnoses) dx
         WHERE dx.value:confidence::STRING = 'high'
     )
     SELECT 
@@ -155,11 +155,11 @@ def load_improvement_opportunities(conn):
         SELECT 
             pa.PATIENT_ID,
             p.AGE_YEARS,
-            pa.ESTIMATED_COST_CATEGORY,
+            pa.AI_ANALYSIS_JSON:cost_analysis:financial_impact:estimated_cost_category::STRING as ESTIMATED_COST_CATEGORY,
             gap.value::STRING as opportunities
         FROM PATIENT_ANALYSIS pa
         JOIN parsed_pmc p ON pa.PATIENT_ID = p.PATIENT_ID,
-        LATERAL FLATTEN(input => pa.GUIDELINE_ADHERENCE_FLAGS) ga,
+        LATERAL FLATTEN(input => pa.AI_ANALYSIS_JSON:quality_metrics:care_quality:guideline_adherence) ga,
         LATERAL FLATTEN(input => ga.value:gaps, OUTER => TRUE) gap
     )
     SELECT 
@@ -192,8 +192,8 @@ def load_quality_trends(conn):
                 ELSE 'Senior'
             END as age_group,
             pa.PATIENT_ID,
-            ARRAY_SIZE(pa.CARE_QUALITY_INDICATORS) as quality_indicators,
-            ARRAY_SIZE(pa.GUIDELINE_ADHERENCE_FLAGS) as guidelines
+            ARRAY_SIZE(pa.AI_ANALYSIS_JSON:quality_metrics:care_quality:quality_indicators) as quality_indicators,
+            ARRAY_SIZE(pa.AI_ANALYSIS_JSON:quality_metrics:care_quality:guideline_adherence) as guidelines
         FROM PATIENT_ANALYSIS pa
         JOIN parsed_pmc p ON pa.PATIENT_ID = p.PATIENT_ID
     )
@@ -231,12 +231,12 @@ def load_safety_events(conn):
             finding.value:finding::STRING as finding_text,
             finding.value:severity::STRING as severity,
             p.AGE_YEARS,
-            pa.ESTIMATED_COST_CATEGORY,
+            pa.AI_ANALYSIS_JSON:cost_analysis:financial_impact:estimated_cost_category::STRING as ESTIMATED_COST_CATEGORY,
             ca.ESTIMATED_ENCOUNTER_COST
         FROM PATIENT_ANALYSIS pa
         JOIN parsed_pmc p ON pa.PATIENT_ID = p.PATIENT_ID
         LEFT JOIN COST_ANALYSIS ca ON pa.PATIENT_ID = ca.PATIENT_ID,
-        LATERAL FLATTEN(input => TRY_PARSE_JSON(pa.KEY_FINDINGS)) finding
+        LATERAL FLATTEN(input => pa.AI_ANALYSIS_JSON:differential_diagnosis:clinical_findings:key_findings) finding
         WHERE finding.value:finding::STRING IS NOT NULL
         AND finding.value:category::STRING IS NOT NULL
         AND finding.value:severity::STRING IS NOT NULL

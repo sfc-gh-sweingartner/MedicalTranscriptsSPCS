@@ -79,33 +79,33 @@ def load_analysis_type_performance(conn=None):
         conn = get_snowflake_connection()
     query = """
     SELECT 
-        PRESENTATION_TYPE as analysis_type,
+        AI_ANALYSIS_JSON:pattern_recognition:clinical_patterns:presentation_type::STRING as analysis_type,
         COUNT(*) as analysis_count,
         -- Simulate processing times based on presentation complexity
-        CASE PRESENTATION_TYPE
+        CASE AI_ANALYSIS_JSON:pattern_recognition:clinical_patterns:presentation_type::STRING
             WHEN 'rare' THEN 4800
             WHEN 'atypical' THEN 3400
             ELSE 2600
         END as avg_processing_time,
-        CASE PRESENTATION_TYPE
+        CASE AI_ANALYSIS_JSON:pattern_recognition:clinical_patterns:presentation_type::STRING
             WHEN 'rare' THEN 3500
             WHEN 'atypical' THEN 2400
             ELSE 1800
         END as min_time,
-        CASE PRESENTATION_TYPE
+        CASE AI_ANALYSIS_JSON:pattern_recognition:clinical_patterns:presentation_type::STRING
             WHEN 'rare' THEN 6200
             WHEN 'atypical' THEN 4800
             ELSE 3600
         END as max_time,
-        CASE PRESENTATION_TYPE
+        CASE AI_ANALYSIS_JSON:pattern_recognition:clinical_patterns:presentation_type::STRING
             WHEN 'rare' THEN 850
             WHEN 'atypical' THEN 680
             ELSE 520
         END as time_stddev,
         COUNT(*) as success_count  -- All are successful since we have complete data
     FROM PATIENT_ANALYSIS
-    WHERE PRESENTATION_TYPE IS NOT NULL
-    GROUP BY PRESENTATION_TYPE
+    WHERE AI_ANALYSIS_JSON:pattern_recognition:clinical_patterns:presentation_type IS NOT NULL
+    GROUP BY AI_ANALYSIS_JSON:pattern_recognition:clinical_patterns:presentation_type::STRING
     ORDER BY analysis_count DESC
     """
     return execute_query(query, conn)
@@ -171,29 +171,29 @@ def load_prompt_effectiveness(conn=None):
         SELECT 
             pa.PATIENT_ID,
             -- Measure completeness of outputs
-            CASE WHEN pa.CHIEF_COMPLAINT IS NOT NULL THEN 1 ELSE 0 END as has_chief_complaint,
-            CASE WHEN pa.DIFFERENTIAL_DIAGNOSES IS NOT NULL AND ARRAY_SIZE(pa.DIFFERENTIAL_DIAGNOSES) > 0 THEN 1 ELSE 0 END as has_diagnoses,
-            CASE WHEN pa.KEY_FINDINGS IS NOT NULL AND ARRAY_SIZE(pa.KEY_FINDINGS) > 0 THEN 1 ELSE 0 END as has_findings,
-            CASE WHEN pa.SBAR_SUMMARY IS NOT NULL THEN 1 ELSE 0 END as has_sbar,
-            CASE WHEN pa.DIAGNOSTIC_REASONING IS NOT NULL THEN 1 ELSE 0 END as has_reasoning,
+            CASE WHEN pa.AI_ANALYSIS_JSON:clinical_summary:chief_complaint IS NOT NULL THEN 1 ELSE 0 END as has_chief_complaint,
+            CASE WHEN pa.AI_ANALYSIS_JSON:differential_diagnosis:diagnostic_assessment:differential_diagnoses IS NOT NULL AND ARRAY_SIZE(pa.AI_ANALYSIS_JSON:differential_diagnosis:diagnostic_assessment:differential_diagnoses) > 0 THEN 1 ELSE 0 END as has_diagnoses,
+            CASE WHEN pa.AI_ANALYSIS_JSON:differential_diagnosis:clinical_findings:key_findings IS NOT NULL AND ARRAY_SIZE(pa.AI_ANALYSIS_JSON:differential_diagnosis:clinical_findings:key_findings) > 0 THEN 1 ELSE 0 END as has_findings,
+            CASE WHEN pa.AI_ANALYSIS_JSON:clinical_summary IS NOT NULL THEN 1 ELSE 0 END as has_sbar,
+            CASE WHEN pa.AI_ANALYSIS_JSON:differential_diagnosis:diagnostic_reasoning IS NOT NULL THEN 1 ELSE 0 END as has_reasoning,
             -- Count populated fields
-            COALESCE(ARRAY_SIZE(pa.DIFFERENTIAL_DIAGNOSES), 0) as dx_count,
-            COALESCE(ARRAY_SIZE(pa.KEY_FINDINGS), 0) as finding_count,
-            pa.ANOMALY_SCORE
+            COALESCE(ARRAY_SIZE(pa.AI_ANALYSIS_JSON:differential_diagnosis:diagnostic_assessment:differential_diagnoses), 0) as dx_count,
+            COALESCE(ARRAY_SIZE(pa.AI_ANALYSIS_JSON:differential_diagnosis:clinical_findings:key_findings), 0) as finding_count,
+            TRY_TO_NUMBER(pa.AI_ANALYSIS_JSON:pattern_recognition:anomaly_detection:anomaly_score::STRING) as ANOMALY_SCORE
         FROM PATIENT_ANALYSIS pa
     )
     SELECT 
         COUNT(*) as total_analyses,
         -- Completeness metrics
-        AVG(has_chief_complaint) * 100 as chief_complaint_rate,
-        AVG(has_diagnoses) * 100 as diagnosis_rate,
-        AVG(has_findings) * 100 as findings_rate,
-        AVG(has_sbar) * 100 as sbar_rate,
-        AVG(has_reasoning) * 100 as reasoning_rate,
+        AVG(has_chief_complaint) * 100 as CHIEF_COMPLAINT_RATE,
+        AVG(has_diagnoses) * 100 as DIAGNOSIS_RATE,
+        AVG(has_findings) * 100 as FINDINGS_RATE,
+        AVG(has_sbar) * 100 as SBAR_RATE,
+        AVG(has_reasoning) * 100 as REASONING_RATE,
         -- Quality metrics
-        AVG(dx_count) as avg_diagnoses_per_patient,
-        AVG(finding_count) as avg_findings_per_patient,
-        AVG(COALESCE(anomaly_score, 0)) as avg_anomaly_score
+        AVG(dx_count) as AVG_DIAGNOSES_PER_PATIENT,
+        AVG(finding_count) as AVG_FINDINGS_PER_PATIENT,
+        AVG(COALESCE(ANOMALY_SCORE, 0)) as AVG_ANOMALY_SCORE
     FROM quality_metrics
     """
     return execute_query(query, conn)
@@ -229,7 +229,7 @@ def load_cost_effectiveness(conn=None):
         SELECT 
             COUNT(DISTINCT pa.PATIENT_ID) as patients_analyzed,
             -- Value metrics
-            COUNT(DISTINCT CASE WHEN pa.PRESENTATION_TYPE = 'rare' THEN pa.PATIENT_ID END) as rare_diseases_found,
+            COUNT(DISTINCT CASE WHEN pa.AI_ANALYSIS_JSON:pattern_recognition:clinical_patterns:presentation_type::STRING = 'rare' THEN pa.PATIENT_ID END) as rare_diseases_found,
             COUNT(DISTINCT CASE WHEN ma.DRUG_INTERACTIONS IS NOT NULL AND ARRAY_SIZE(ma.DRUG_INTERACTIONS) > 0 THEN ma.PATIENT_ID END) as interactions_found,
             COUNT(DISTINCT CASE WHEN ca.COST_CATEGORY IN ('high', 'very_high') THEN ca.PATIENT_ID END) as high_cost_identified,
             -- Simulated processing time (average 2.8 seconds)

@@ -67,7 +67,7 @@ def get_data_counts(_conn):
 
 # PATIENT_SUBSET utilities removed (deprecated)
 
-def run_batch_processing():
+def run_batch_processing(batch_size=10, max_patients=1000, ai_model='openai-gpt-5', target_patient_id=None):
     """Run the OPTIMIZED batch processing pipeline using Snowpark stored procedure."""
     try:
         conn = get_snowflake_connection()
@@ -75,14 +75,20 @@ def run_batch_processing():
             st.error("No Snowflake connection available")
             return False
         
+        # Build the procedure call with parameters
+        if target_patient_id:
+            call_sql = f"CALL HEALTHCARE_DEMO.MEDICAL_NOTES.BATCH_PROCESS_PATIENTS({batch_size}, {max_patients}, '{ai_model}', {target_patient_id})"
+        else:
+            call_sql = f"CALL HEALTHCARE_DEMO.MEDICAL_NOTES.BATCH_PROCESS_PATIENTS({batch_size}, {max_patients}, '{ai_model}')"
+        
         # Call the Snowpark stored procedure
         if hasattr(conn, 'sql'):  # Snowpark session
-            result = conn.sql("CALL HEALTHCARE_DEMO.MEDICAL_NOTES.BATCH_PROCESS_PATIENTS(10, 1000)").collect()
+            result = conn.sql(call_sql).collect()
             if result:
                 st.success(f"Batch processing completed: {result[0][0]}")
         else:  # Regular connection
             cursor = conn.cursor()
-            cursor.execute("CALL HEALTHCARE_DEMO.MEDICAL_NOTES.BATCH_PROCESS_PATIENTS(10, 1000)")
+            cursor.execute(call_sql)
             result = cursor.fetchone()
             cursor.close()
             if result:
@@ -233,7 +239,8 @@ def main():
         st.markdown("""
         - **Optimized Batch Processing**: Stored procedure `BATCH_PROCESS_PATIENTS()` uses a **consolidated prompt approach**:
           - **Performance**: 5-8x faster than legacy processing (15-25 seconds vs 90+ seconds per patient)
-          - **Single API call** processes all 8 use cases simultaneously using `claude-4-sonnet`
+          - **Single API call** processes all 8 use cases simultaneously using `openai-gpt-5` (configurable)
+          - **Gap Filling**: Automatically finds and processes any missing patients, including previously deleted ones
           - **Snowflake Native**: Runs directly in Snowflake as a stored procedure for optimal performance
           - Populates `PATIENT_ANALYSIS`, `MEDICATION_ANALYSIS`, and `COST_ANALYSIS` with comprehensive insights
         - **Reference Data**: `PROCEDURE_COSTS` and `DRUG_INTERACTIONS_REFERENCE` seeded with sample values for realistic cost and safety analysis.
@@ -250,22 +257,148 @@ def main():
         st.markdown("## ⚙️ Data Management: Run batch processing")
         st.markdown("Manage pre-processing directly from this page.")
         
-        st.success("🚀 **OPTIMIZED VERSION**: Now using consolidated prompts - **5-8x faster** processing!")
-        st.info("Performance: ~15-25 seconds per patient (vs ~90 seconds with original method)")
+
 
         counts = get_data_counts(get_snowflake_connection())
         st.markdown(f"Current counts → PMC: {counts['pmc_total']:,}, Patient_Analysis: {counts['patient_analysis']:,}, Medication_Analysis: {counts['medication_analysis']:,}, Cost_Analysis: {counts['cost_analysis']:,}")
 
         st.markdown("---")
-        if st.button("🚀 Run Batch Processing (OPTIMIZED)", type="primary", use_container_width=True):
-            with st.spinner("Running OPTIMIZED batch processing..."):
-                ok = run_batch_processing()
+        
+        # Enhanced controls
+        st.markdown("### 🎛️ Batch Processing Controls")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### Processing Parameters")
+            batch_size = st.number_input(
+                "Batch Size", 
+                min_value=1, 
+                max_value=50, 
+                value=10, 
+                help="Number of patients processed simultaneously"
+            )
+            
+            max_patients = st.number_input(
+                "Max Patients", 
+                min_value=1, 
+                max_value=10000, 
+                value=1000, 
+                help="Maximum number of patients to process in this run"
+            )
+            
+            ai_model = st.selectbox(
+                "AI Model",
+                ["openai-gpt-5", "claude-4-sonnet", "claude-3.5-sonnet", "mistral-large"],
+                index=0,
+                help="AI model to use for processing"
+            )
+        
+        with col2:
+            st.markdown("#### Advanced Options")
+            
+            process_specific = st.checkbox("Process Specific Patient", help="Target a single patient ID")
+            
+            if process_specific:
+                target_patient_id = st.number_input(
+                    "Patient ID", 
+                    min_value=1, 
+                    value=577, 
+                    help="Specific patient ID to process"
+                )
+            else:
+                target_patient_id = None
+                st.info("💡 **Gap Filling**: The batch processor automatically finds and processes any missing patients, including previously deleted ones")
+        
+        # Instructions
+        st.markdown("### 📋 Instructions")
+        
+        with st.expander("How to Use Batch Processing", expanded=True):
+            st.markdown("""
+            **🎯 Processing Modes:**
+            
+            1. **Full Batch Processing** (default):
+               - Processes ALL missing patients from the PMC dataset
+               - Automatically fills gaps (e.g., deleted patients 577, 587, 591, 594)
+               - Uses LEFT JOIN to find any patient in PMC but missing from PATIENT_ANALYSIS
+            
+            2. **Limited Batch Processing**:
+               - Set "Max Patients" to limit the run size
+               - Useful for testing or gradual processing
+               - Still processes in patient ID order
+            
+            3. **Single Patient Processing**:
+               - Check "Process Specific Patient"
+               - Enter the patient ID you want to reprocess
+               - Useful for fixing individual problematic records
+            
+            **⚡ Performance Tips:**
+            - **Batch Size**: 10-20 for optimal balance of speed vs. memory
+            - **Max Patients**: Start with 100-500 for testing, then increase
+            - **AI Model**: `openai-gpt-5` is the default and fastest
+            
+            **🔧 Troubleshooting:**
+            - If processing fails, reduce batch size to 5
+            - Check Snowflake warehouse is running (MEDIUM or larger recommended)
+            - Verify Cortex credits are available
+            """)
+        
+        # SQL command reference
+        with st.expander("Manual SQL Commands"):
+            st.markdown("**Equivalent SQL commands for different scenarios:**")
+            
+            if target_patient_id:
+                sql_cmd = f"CALL HEALTHCARE_DEMO.MEDICAL_NOTES.BATCH_PROCESS_PATIENTS({batch_size}, {max_patients}, '{ai_model}', {target_patient_id});"
+            else:
+                sql_cmd = f"CALL HEALTHCARE_DEMO.MEDICAL_NOTES.BATCH_PROCESS_PATIENTS({batch_size}, {max_patients}, '{ai_model}');"
+            
+            st.code(sql_cmd, language='sql')
+            
+            st.markdown("**Check processing status:**")
+            st.code("SELECT * FROM PROCESSING_STATUS ORDER BY START_TIME DESC LIMIT 5;", language='sql')
+            
+            st.markdown("**Find missing patients:**")
+            st.code("""
+SELECT COUNT(*) as missing_count
+FROM PMC_PATIENTS.PMC_PATIENTS.PMC_PATIENTS p
+LEFT JOIN HEALTHCARE_DEMO.MEDICAL_NOTES.PATIENT_ANALYSIS pa ON p.PATIENT_ID = pa.PATIENT_ID
+WHERE pa.PATIENT_ID IS NULL
+  AND p.PATIENT_NOTES IS NOT NULL
+  AND LENGTH(p.PATIENT_NOTES) > 100;
+            """, language='sql')
+        
+        st.markdown("---")
+        
+        # Enhanced run button
+        if target_patient_id:
+            button_text = f"🎯 Process Patient {target_patient_id}"
+            button_help = f"Process single patient {target_patient_id} using {ai_model}"
+        else:
+            button_text = f"🚀 Run Batch Processing (up to {max_patients} patients)"
+            button_help = f"Process up to {max_patients} missing patients using {ai_model}"
+        
+        if st.button(button_text, type="primary", use_container_width=True, help=button_help):
+            with st.spinner(f"Running batch processing with {ai_model}..."):
+                ok = run_batch_processing(
+                    batch_size=batch_size, 
+                    max_patients=max_patients, 
+                    ai_model=ai_model, 
+                    target_patient_id=target_patient_id
+                )
             if ok:
-                st.success("🎉 Optimized batch processing completed!")
-            # Refresh counts after operation
-            get_data_counts.clear()
-            counts = get_data_counts(get_snowflake_connection())
-            st.info(f"Updated counts → PMC: {counts['pmc_total']:,}, Patient_Analysis: {counts['patient_analysis']:,}, Medication_Analysis: {counts['medication_analysis']:,}, Cost_Analysis: {counts['cost_analysis']:,}")
+                st.success("🎉 Batch processing completed!")
+                # Refresh counts after operation
+                get_data_counts.clear()
+                counts = get_data_counts(get_snowflake_connection())
+                st.info(f"Updated counts → PMC: {counts['pmc_total']:,}, Patient_Analysis: {counts['patient_analysis']:,}, Medication_Analysis: {counts['medication_analysis']:,}, Cost_Analysis: {counts['cost_analysis']:,}")
+                
+                if target_patient_id:
+                    st.success(f"✅ Patient {target_patient_id} has been reprocessed. You can now test it in Clinical Decision Support!")
+                else:
+                    gap_info = max_patients if max_patients < 1000 else "all missing"
+                    st.success(f"✅ Processed {gap_info} patients. All gaps have been filled!")
+            else:
+                st.error("❌ Batch processing failed. Check the error message above and try with smaller batch size or different model.")
     
     elif demo_section == "Demo Scenarios":
         st.markdown("## 🎭 Demo Scenarios")
@@ -406,7 +539,7 @@ def main():
                 st.markdown("##### AI Layer (OPTIMIZED)")
                 st.markdown("""
                 - **Snowflake Cortex**: LLM processing engine
-                - **Model Used**: claude-4-sonnet (unified across all use cases)
+                - **Model Used**: openai-gpt-5 (unified across all use cases, configurable)
                 - **Consolidated Prompts**: Single comprehensive prompt for all 8 use cases
                 - **Performance**: 5-8x faster than individual prompts (15-25 sec/patient)
                 - **Batch Processing**: Optimized scalable analysis with live management
@@ -466,14 +599,14 @@ def main():
                     'Educational Value'
                 ],
                 'AI Model': [
-                    'claude-4-sonnet',
-                    'claude-4-sonnet',
-                    'claude-4-sonnet',
-                    'claude-4-sonnet',
-                    'claude-4-sonnet',
-                    'claude-4-sonnet',
-                    'claude-4-sonnet',
-                    'claude-4-sonnet'
+                    'openai-gpt-5 (default)',
+                    'openai-gpt-5 (default)',
+                    'openai-gpt-5 (default)',
+                    'openai-gpt-5 (default)',
+                    'openai-gpt-5 (default)',
+                    'openai-gpt-5 (default)',
+                    'openai-gpt-5 (default)',
+                    'openai-gpt-5 (default)'
                 ],
                 'Processing Method': [
                     'Consolidated Prompt',

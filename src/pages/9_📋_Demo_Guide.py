@@ -287,12 +287,34 @@ def main():
                 help="Maximum number of patients to process in this run"
             )
             
-            ai_model = st.selectbox(
+            # Complete list of available models from Prompt and Model Testing page
+            ai_model_options = [
+                ("OpenAI GPT-5 (default)", "openai-gpt-5"),
+                ("Claude 4 Sonnet", "claude-4-sonnet"),
+                ("Claude 3.5 Sonnet", "claude-3.5-sonnet"),
+                ("OpenAI GPT-4.1", "openai-gpt-4.1"),
+                ("OpenAI GPT-5 Mini", "openai-gpt-5-mini"),
+                ("OpenAI GPT-5 Nano", "openai-gpt-5-nano"),
+                ("OpenAI GPT-5 Chat", "openai-gpt-5-chat"),
+                ("OpenAI GPT OSS 120B", "openai-gpt-oss-120b"),
+                ("OpenAI GPT OSS 20B", "openai-gpt-oss-20b"),
+                ("Llama 3.1 8B", "llama3.1-8b"),
+                ("Llama 3.1 70B", "llama3.1-70b"),
+                ("Mistral Large", "mistral-large"),
+                ("Mistral Large 2", "mistral-large2"),
+                ("Mixtral 8x7B", "mixtral-8x7b"),
+                ("Mistral 7B", "mistral-7b")
+            ]
+            
+            ai_model_display = st.selectbox(
                 "AI Model",
-                ["openai-gpt-5", "claude-4-sonnet", "claude-3.5-sonnet", "mistral-large"],
+                options=[display for display, value in ai_model_options],
                 index=0,
                 help="AI model to use for processing"
             )
+            
+            # Get the actual model value from the display name
+            ai_model = next(value for display, value in ai_model_options if display == ai_model_display)
         
         with col2:
             st.markdown("#### Advanced Options")

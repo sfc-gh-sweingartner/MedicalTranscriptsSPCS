@@ -612,13 +612,26 @@ def main():
             st.warning("⚠️ **Medication-Condition Contraindications Detected**")
             
             # Contraindications visualization
-            fig_contra = px.sunburst(
-                contra_df,
-                path=['MEDICATION', 'CONDITION'],
-                values='AFFECTED_PATIENTS',
-                title='Medication Contraindications by Condition'
-            )
-            st.plotly_chart(fig_contra, use_container_width=True)
+            try:
+                fig_contra = px.sunburst(
+                    contra_df,
+                    path=['MEDICATION', 'CONDITION'],
+                    values='AFFECTED_PATIENTS',
+                    title='Medication Contraindications by Condition'
+                )
+                st.plotly_chart(fig_contra, use_container_width=True)
+            except Exception as e:
+                st.error(f"Error creating contraindications visualization: {str(e)}")
+                # Fallback to a simple bar chart
+                if len(contra_df) > 0:
+                    fig_contra_alt = px.bar(
+                        contra_df.head(10),
+                        x='AFFECTED_PATIENTS',
+                        y='MEDICATION',
+                        title='Top 10 Medications with Contraindications',
+                        orientation='h'
+                    )
+                    st.plotly_chart(fig_contra_alt, use_container_width=True)
             
             # Detailed contraindications
             st.markdown("#### Contraindication Details")
@@ -626,6 +639,8 @@ def main():
                 with st.expander(f"{contra['MEDICATION']} - {contra['CONDITION']} ({contra['AFFECTED_PATIENTS']} patients)"):
                     st.error(f"**Risk**: {contra['RISK_DESCRIPTION']}")
                     st.write(f"Average patient age: {contra['AVG_AGE']:.1f} years")
+        else:
+            st.info("✅ No medication-condition contraindications detected in the current dataset.")
     
     with tab5:
         st.markdown("### 🚨 High-Risk Patient Identification")

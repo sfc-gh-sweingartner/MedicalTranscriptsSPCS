@@ -49,8 +49,8 @@ This Healthcare AI Demo provides:
 
 1. **Clone the Repository**:
    ```bash
-   git clone <repository-url>
-   cd MedicalTranscripts
+   git clone https://github.com/sfc-gh-sweingartner/MedicalTranscriptsSPCS.git
+   cd MedicalTranscriptsSPCS
    ```
 
 2. **Get the PMC Patient Data**:
@@ -62,7 +62,11 @@ This Healthcare AI Demo provides:
 
 3. **Install Dependencies**:
    ```bash
-   pip install -r requirements.txt
+   # Using pip with pyproject.toml (recommended)
+   pip install -e .
+   
+   # Or using uv (faster, modern Python package installer)
+   uv pip install -e .
    ```
 
 3. **Configure Snowflake Connection**:
@@ -122,9 +126,9 @@ If you prefer to run the setup manually:
 ## 📁 Project Structure
 
 ```
-MedicalTranscripts/
+MedicalTranscriptsSPCS/
 ├── README.md                                    # This deployment guide
-├── requirements.txt                             # Python dependencies
+├── pyproject.toml                              # Modern Python dependencies (replaces requirements.txt)
 ├── Data/
 │   └── PMC-Patients.csv                        # Medical case studies dataset (167K+ records)
 ├── sql/                                        # Database setup scripts
@@ -224,20 +228,44 @@ SELECT SNOWFLAKE.CORTEX.SEARCH(
 - Connects to Snowflake via config.toml
 - Full development and testing capabilities
 
-### Streamlit in Snowflake (SiS)
+### Streamlit in Snowflake (SiS) - Legacy
 - Deploy directly to Snowflake environment
 - Native integration with Cortex AI
-- No external dependencies or configuration needed
+- Limited package support (Snowflake curated packages only)
 
-#### Streamlit in Snowflake: required Packages
-When deploying the Streamlit app inside Snowflake, add these packages in the app editor:
+#### Legacy SiS: Required Packages
+When deploying the Streamlit app in legacy SiS, add these packages in the app editor:
+- snowflake.core
+- plotly  
+- pandas
 
-1. Open the Streamlit app in Snowflake and click the Packages dropdown in the editor.
-2. Add the following packages:
-   - snowflake.core
-   - plotly
-   - pandas
-3. Save, then run/redeploy the app.
+### Streamlit in Snowflake on SPCS V2 (Recommended)
+- **Modern Python Environment**: Supports Python 3.11+ and most PyPI packages
+- **Advanced Package Management**: Full pyproject.toml and uv support
+- **Streamlit 1.49+**: Latest Streamlit features and performance
+- **Container-based**: More flexibility and better isolation
+
+#### SPCS V2: Deployment Guide
+1. Create a new Streamlit app in Snowflake
+2. Choose "SPCS V2" as the deployment option
+3. Upload your `pyproject.toml` file or include dependencies directly:
+   ```toml
+   [project]
+   dependencies = [
+       "streamlit>=1.49.0",
+       "pandas>=2.3.1",
+       "numpy>=1.24.0",
+       "plotly>=6.0.1",
+       "altair>=5.0.0",
+       "matplotlib>=3.7.0",
+       "seaborn>=0.12.0",
+       "python-dateutil>=2.8.0",
+       "pytz>=2023.3",
+       "snowflake.core>=1.7.0"
+   ]
+   ```
+4. Upload your application files
+5. Deploy and run
 
 ### Production Deployment
 - Container deployment options available
@@ -310,7 +338,7 @@ When deploying the Streamlit app inside Snowflake, add these packages in the app
    ❌ Page not loading
    ```
    - Check Python version (3.11+ required)
-   - Verify all dependencies installed: `pip install -r requirements.txt`
+   - Verify all dependencies installed: `pip install -e .`
    - Review Streamlit logs for specific errors
 
 ### Getting Help
@@ -325,7 +353,10 @@ When deploying the Streamlit app inside Snowflake, add these packages in the app
 ### Keeping Current
 ```bash
 git pull origin main
-pip install -r requirements.txt --upgrade
+# Upgrade dependencies using pip
+pip install -e . --upgrade
+# Or using uv (faster)
+uv pip install -e . --upgrade
 python scripts/deploy_healthcare_demo.py --update
 ```
 

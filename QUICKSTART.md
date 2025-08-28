@@ -12,9 +12,12 @@ Get the Healthcare AI Demo running in your Snowflake account in under 10 minutes
 
 ### Step 1: Clone and Install
 ```bash
-git clone <repository-url>
-cd MedicalTranscripts
-pip install -r requirements.txt
+git clone https://github.com/sfc-gh-sweingartner/MedicalTranscriptsSPCS.git
+cd MedicalTranscriptsSPCS
+# Using pip with pyproject.toml (recommended)
+pip install -e .
+# Or using uv (faster, modern Python package installer)
+# uv pip install -e .
 ```
 
 ### Step 2: Configure Snowflake
@@ -83,7 +86,7 @@ python scripts/validate_deployment.py
 python --version
 
 # Reinstall dependencies
-pip install -r requirements.txt --upgrade
+pip install -e . --upgrade
 ```
 
 ## ⚠️ Important Notes
